@@ -1,0 +1,42 @@
+# Arquivos de build
+/target/
+**/*.rs.bk
+
+# Configurações locais do Cargo
+/.cargo/
+/.cargo-ok
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Arquivos de lock opcionais (se for lib, pode ignorar)
+# Cargo.lock
+
+# IDEs / editores
+.vscode/
+.idea/
+*.iml
+
+# MacOS / Linux / Windows
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Ferramentas de teste/coverage
+/coverage/
+/llvm-cov-html/
+/lcov.info
+
+# Arquivos gerados por rustfmt ou clippy
+*.rs.bk
+
+# Binários soltos
+*.exe
+*.out
+*.a
+*.so
+*.dll
+*.dylib
