@@ -459,22 +459,44 @@ impl Interpreter {
             }
 
             NodeData::ArrayAccess { array, indices } => {
-                let arr_val = self.execute_expression(array)?;
-                if let Value::Array(ref arr) = arr_val {
-                    if let Some(index_node) = indices.first() {
-                        let index_val = self.execute_expression(index_node)?;
-                        let index = index_val.to_int()? as usize;
-                        if index < arr.len() {
-                            Ok(arr[index].clone())
-                        } else {
-                            Err(RuntimeError::IndexOutOfBounds)
+                let mut current_value = self.execute_expression(array)?;
+                
+                // Process each index sequentially for multi-dimensional access
+                for index_node in indices {
+                    let index_val = self.execute_expression(index_node)?;
+                    let index = index_val.to_int()? as usize;
+                    
+                    match current_value {
+                        Value::Array(arr) => {
+                            if index < arr.len() {
+                                current_value = arr[index].clone();
+                            } else {
+                                return Err(RuntimeError::IndexOutOfBounds);
+                            }
+                        },
+                        Value::String(s) => {
+                            if index < s.len() {
+                                let ch = s.chars().nth(index).unwrap();
+                                current_value = Value::Char(ch);
+                            } else {
+                                return Err(RuntimeError::IndexOutOfBounds);
+                            }
+                        },
+                        _ => {
+                            return Err(RuntimeError::TypeMismatch("Not an array or string".to_string()));
                         }
-                    } else {
-                        Err(RuntimeError::InvalidOperation("No index provided".to_string()))
                     }
-                } else {
-                    Err(RuntimeError::TypeMismatch("Not an array".to_string()))
                 }
+                
+                Ok(current_value)
+            }
+
+            NodeData::ArrayLiteral { elements } => {
+                let mut array_values = Vec::new();
+                for element in elements {
+                    array_values.push(self.execute_expression(element)?);
+                }
+                Ok(Value::Array(array_values))
             }
 
             _ => Err(RuntimeError::InvalidOperation("Unsupported expression".to_string())),

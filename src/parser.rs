@@ -60,7 +60,7 @@ impl Parser {
 
     fn peek(&self) -> &Token {
         if self.current >= self.tokens.len() {
-            &self.tokens[self.tokens.len() - 1] // Return EOF token
+            &self.tokens[self.tokens.len() - 1]
         } else {
             &self.tokens[self.current]
         }
@@ -109,6 +109,10 @@ impl Parser {
 
     fn skip_newlines(&mut self) {
         while self.match_token(&[TokenType::Newline]) {}
+    }
+
+    fn skip_newlines_and_indents(&mut self) {
+        while self.match_token(&[TokenType::Newline, TokenType::Indent, TokenType::Dedent]) {}
     }
 
     fn statement(&mut self) -> Result<Node, ParseError> {
@@ -939,12 +943,54 @@ impl Parser {
                 return Ok(expr);
             }
         }
+
+        if self.match_token(&[TokenType::LeftBracket]) {
+            return self.array_literal();
+        }
         
         Err(ParseError::UnexpectedToken {
             found: self.peek().token_type,
             expected: Some("primary expression".to_string()),
             line: self.peek().line,
         })
+    }
+
+    fn array_literal(&mut self) -> Result<Node, ParseError> {
+        let line = self.previous().line;
+        let column = self.previous().column;
+        
+        let mut elements = Vec::new();
+        
+        self.skip_newlines_and_indents();
+        
+        if !self.check(TokenType::RightBracket) {
+            loop {
+                self.skip_newlines_and_indents();
+                elements.push(Box::new(self.expression()?));
+                self.skip_newlines_and_indents();
+                
+                if !self.match_token(&[TokenType::Comma]) {
+                    break;
+                }
+                
+                self.skip_newlines_and_indents();
+                
+                // Allow trailing comma
+                if self.check(TokenType::RightBracket) {
+                    break;
+                }
+            }
+        }
+        
+        self.skip_newlines_and_indents();
+        self.consume(TokenType::RightBracket, "Expected ']' after array elements")?;
+        
+        Ok(Node::new(
+            NodeType::ArrayLiteral,
+            NodeData::ArrayLiteral { elements },
+            line,
+            column,
+        ))
     }
 
     fn check_type(&self) -> bool {
