@@ -60,6 +60,7 @@ pub enum TokenType {
     Colon,
     Question,
     Comma,
+    Semicolon,
     Dot,
     Ellipsis,
     Newline,
@@ -98,6 +99,7 @@ pub struct Tokenizer {
     keywords: HashMap<String, TokenType>,
     indent_stack: Vec<usize>,
     at_line_start: bool,
+    tab_width: usize,
 }
 
 impl Tokenizer {
@@ -136,6 +138,7 @@ impl Tokenizer {
             keywords,
             indent_stack: vec![0],
             at_line_start: true,
+            tab_width: 4
         }
     }
 
@@ -190,14 +193,21 @@ impl Tokenizer {
         }
         
         if !self.is_at_end() && self.peek() == '\n' {
+            self.advance();
+            self.tokens.push(Token::new(TokenType::Newline, String::new(), self.line, self.column));
             self.at_line_start = true;
             return Ok(());
         }
-        
+
         if !self.is_at_end() && self.peek() == '/' && self.peek_next() == '/' {
             while !self.is_at_end() && self.peek() != '\n' {
                 self.advance();
             }
+            if !self.is_at_end() && self.peek() == '\n' {
+                self.advance();
+                self.tokens.push(Token::new(TokenType::Newline, String::new(), self.line, self.column));
+            }
+            self.at_line_start = true;
             return Ok(());
         }
         
@@ -235,16 +245,17 @@ impl Tokenizer {
     }
 
 
-    fn advance(&mut self) -> char {
+    fn advance(&mut self) -> Option<char> {
         let c = self.source[self.current];
         self.current += 1;
         if c == '\n' {
             self.line += 1;
             self.column = 1;
+            self.at_line_start = true;
         } else {
             self.column += 1;
         }
-        c
+        Some(c)
     }
 
     fn peek(&self) -> char {
@@ -285,7 +296,7 @@ impl Tokenizer {
     }
 
     fn scan_token(&mut self) -> Result<(), String> {
-        let c = self.advance();
+        let c = self.advance().unwrap();
 
         match c {
             ' ' | '\r' | '\t' => {}, // Skip whitespace
@@ -301,6 +312,7 @@ impl Tokenizer {
             '}' => self.add_token(TokenType::RightBrace),
             ':' => self.add_token(TokenType::Colon),
             '?' => self.add_token(TokenType::Question),
+            ';' => self.add_token(TokenType::Semicolon),
             ',' => self.add_token(TokenType::Comma),
             '.' => {
                 if self.match_char('.') && self.match_char('.') {

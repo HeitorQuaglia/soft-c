@@ -132,7 +132,6 @@ impl Interpreter {
             functions: HashMap::new(),
             structs: HashMap::new(),
         };
-        // Initialize with global frame
         interpreter.call_stack.push(CallFrame::new("global".to_string()));
         interpreter
     }
@@ -142,7 +141,6 @@ impl Interpreter {
     }
 
     fn get_variable(&self, name: &str) -> Option<&Variable> {
-        // Search from top of stack (current frame) down to global
         for frame in self.call_stack.iter().rev() {
             if let Some(var) = frame.variables.get(name) {
                 return Some(var);
@@ -160,13 +158,12 @@ impl Interpreter {
     }
 
     fn pop_call_frame(&mut self) {
-        if self.call_stack.len() > 1 {  // Keep at least global frame
+        if self.call_stack.len() > 1 {
             self.call_stack.pop();
         }
     }
 
     fn get_variable_mut(&mut self, name: &str) -> Option<&mut Variable> {
-        // Search from top of stack (current frame) down to global
         for frame in self.call_stack.iter_mut().rev() {
             if frame.variables.contains_key(name) {
                 return frame.variables.get_mut(name);
@@ -176,7 +173,6 @@ impl Interpreter {
     }
 
     pub fn execute(&mut self, node: &Node) -> Result<Value, RuntimeError> {
-        // First pass: collect all function and struct definitions
         if let NodeData::Program { statements } = &node.data {
             for stmt in statements {
                 match &stmt.data {
@@ -190,7 +186,6 @@ impl Interpreter {
                 }
             }
 
-            // Look for main function
             if let Some(main_func) = self.functions.get("main").cloned() {
                 match self.execute_statement(&main_func) {
                     Ok(value) => return Ok(value),
@@ -199,7 +194,6 @@ impl Interpreter {
                 }
             }
 
-            // If no main function, execute statements sequentially
             let mut last_value = Value::Void;
             for stmt in statements {
                 if !matches!(stmt.data, NodeData::FunctionDef { .. } | NodeData::StructDef { .. }) {
@@ -223,13 +217,32 @@ impl Interpreter {
             }
 
             NodeData::FunctionDef { body, .. } => {
-                // Function definitions are handled in the first pass
                 self.execute_statement(body)
             }
 
-            NodeData::VarDecl { data_type, name, array_sizes: _, init_expr } => {
+            NodeData::VarDecl { data_type, name, array_sizes, init_expr } => {
                 let value = if let Some(init) = init_expr {
                     self.execute_expression(init)?
+                } else if let Some(sizes) = array_sizes {
+                    // Create array with specified size
+                    if sizes.len() == 1 {
+                        // Single dimension array
+                        let size_node = &sizes[0];
+                        let size_value = self.execute_expression(size_node)?;
+                        if let Value::Int(size) = size_value {
+                            let default_elem = self.default_value_for_type(data_type);
+                            Value::Array(vec![default_elem; size as usize])
+                        } else {
+                            return Err(RuntimeError::InvalidOperation(
+                                "Array size must be an integer".to_string()
+                            ));
+                        }
+                    } else {
+                        // Multi-dimensional arrays not implemented yet
+                        return Err(RuntimeError::InvalidOperation(
+                            "Multi-dimensional arrays not implemented yet".to_string()
+                        ));
+                    }
                 } else {
                     self.default_value_for_type(data_type)
                 };
@@ -447,6 +460,21 @@ impl Interpreter {
                     }
                     println!("{}", output);
                     Ok(Value::Void)
+                } else if name == "len" {
+                    if args.len() != 1 {
+                        return Err(RuntimeError::InvalidOperation(
+                            "len() function requires exactly one argument".to_string()
+                        ));
+                    }
+                    
+                    let arg_value = self.execute_expression(&args[0])?;
+                    match arg_value {
+                        Value::Array(ref arr) => Ok(Value::Int(arr.len() as i64)),
+                        Value::String(ref s) => Ok(Value::Int(s.len() as i64)),
+                        _ => Err(RuntimeError::InvalidOperation(
+                            "len() can only be called on arrays or strings".to_string()
+                        ))
+                    }
                 } else {
                     // Custom function call
                     self.call_function(name, args)
@@ -497,6 +525,11 @@ impl Interpreter {
                     array_values.push(self.execute_expression(element)?);
                 }
                 Ok(Value::Array(array_values))
+            }
+
+            NodeData::Assignment { op, target, value } => {
+                let val = self.execute_expression(value)?;
+                self.assign_to_target(target, op, val)
             }
 
             _ => Err(RuntimeError::InvalidOperation("Unsupported expression".to_string())),
@@ -701,30 +734,6 @@ impl Interpreter {
         }
     }
 
-    fn assign_to_target(&mut self, target: &Node, op: &AssignOpType, value: Value) -> Result<Value, RuntimeError> {
-        if let NodeData::Identifier { name } = &target.data {
-            let new_value = if let Some(var) = self.get_variable(name) {
-                match op {
-                    AssignOpType::Assign => value,
-                    AssignOpType::AddAssign => self.execute_binary_op(&BinaryOpType::Add, &var.value, &value)?,
-                    AssignOpType::SubAssign => self.execute_binary_op(&BinaryOpType::Sub, &var.value, &value)?,
-                    AssignOpType::MulAssign => self.execute_binary_op(&BinaryOpType::Mul, &var.value, &value)?,
-                    AssignOpType::DivAssign => self.execute_binary_op(&BinaryOpType::Div, &var.value, &value)?,
-                }
-            } else {
-                return Err(RuntimeError::UndefinedVariable(name.clone()));
-            };
-            
-            if let Some(var) = self.get_variable_mut(name) {
-                var.value = new_value.clone();
-                Ok(new_value)
-            } else {
-                Err(RuntimeError::UndefinedVariable(name.clone()))
-            }
-        } else {
-            Err(RuntimeError::InvalidOperation("Invalid assignment target".to_string()))
-        }
-    }
 
     fn values_equal(&self, left: &Value, right: &Value) -> Result<bool, RuntimeError> {
         match (left, right) {
@@ -779,16 +788,13 @@ impl Interpreter {
     }
 
     fn call_function(&mut self, name: &str, args: &[Box<Node>]) -> Result<Value, RuntimeError> {
-        // Get the function definition
         if let Some(func) = self.functions.get(name).cloned() {
             if let NodeData::FunctionDef { parameters, body, .. } = &func.data {
-                // Evaluate arguments in current frame
                 let mut arg_values = Vec::new();
                 for arg in args {
                     arg_values.push(self.execute_expression(arg)?);
                 }
 
-                // Check parameter count
                 if parameters.len() != arg_values.len() {
                     return Err(RuntimeError::InvalidOperation(
                         format!("Function '{}' expects {} arguments, got {}", 
@@ -796,10 +802,8 @@ impl Interpreter {
                     ));
                 }
 
-                // Create new call frame
                 self.push_call_frame(name.to_string());
 
-                // Bind parameters to argument values
                 for (param, arg_value) in parameters.iter().zip(arg_values.iter()) {
                     let var = Variable {
                         name: param.name.clone(),
@@ -809,14 +813,12 @@ impl Interpreter {
                     self.set_variable(param.name.clone(), var);
                 }
 
-                // Execute function body
                 let result = match self.execute_statement(body) {
                     Err(RuntimeError::Return(value)) => Ok(value),
                     Ok(value) => Ok(value),
                     Err(e) => Err(e),
                 };
 
-                // Pop call frame
                 self.pop_call_frame();
                 
                 result
@@ -825,6 +827,55 @@ impl Interpreter {
             }
         } else {
             Err(RuntimeError::UndefinedVariable(format!("Function '{}' not found", name)))
+        }
+    }
+
+    fn assign_to_target(&mut self, target: &Node, op: &AssignOpType, value: Value) -> Result<Value, RuntimeError> {
+        match &target.node_type {
+            NodeType::Identifier => {
+                if let NodeData::Identifier { name } = &target.data {
+                    let current_value = if matches!(op, AssignOpType::Assign) {
+                        value
+                    } else {
+                        // Para operadores como +=, -=, etc., primeiro pegamos o valor atual
+                        let var = self.get_variable(name)
+                            .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone()))?;
+                        self.apply_assign_op(&var.value, op, value)?
+                    };
+
+                    // Atualizar variable na call frame atual
+                    if let Some(frame) = self.call_stack.last_mut() {
+                        if let Some(var) = frame.variables.get_mut(name) {
+                            var.value = current_value.clone();
+                            return Ok(current_value);
+                        }
+                    }
+
+                    Err(RuntimeError::UndefinedVariable(format!("Variable '{}' not found", name)))
+                } else {
+                    Err(RuntimeError::InvalidOperation("Invalid assignment target".to_string()))
+                }
+            }
+            
+            _ => Err(RuntimeError::InvalidOperation("Assignment to this target not supported yet".to_string()))
+        }
+    }
+
+    fn apply_assign_op(&self, current: &Value, op: &AssignOpType, new_value: Value) -> Result<Value, RuntimeError> {
+        match op {
+            AssignOpType::Assign => Ok(new_value),
+            AssignOpType::AddAssign => {
+                self.execute_binary_op(&BinaryOpType::Add, current, &new_value)
+            }
+            AssignOpType::SubAssign => {
+                self.execute_binary_op(&BinaryOpType::Sub, current, &new_value)
+            }
+            AssignOpType::MulAssign => {
+                self.execute_binary_op(&BinaryOpType::Mul, current, &new_value)
+            }
+            AssignOpType::DivAssign => {
+                self.execute_binary_op(&BinaryOpType::Div, current, &new_value)
+            }
         }
     }
 }

@@ -1,5 +1,5 @@
-use crate::tokenizer::{Token, TokenType};
 use crate::ast::*;
+use crate::tokenizer::{Token, TokenType};
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -14,13 +14,21 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::UnexpectedToken { found, expected, line } => {
+            ParseError::UnexpectedToken {
+                found,
+                expected,
+                line,
+            } => {
                 if let Some(exp) = expected {
-                    write!(f, "Unexpected token {:?} at line {}, expected {}", found, line, exp)
+                    write!(
+                        f,
+                        "Unexpected token {:?} at line {}, expected {}",
+                        found, line, exp
+                    )
                 } else {
                     write!(f, "Unexpected token {:?} at line {}", found, line)
                 }
-            },
+            }
             ParseError::UnexpectedEof => write!(f, "Unexpected end of file"),
         }
     }
@@ -128,7 +136,6 @@ impl Parser {
             TokenType::KwString,
             TokenType::KwBool,
         ]) {
-            // Parse the type from the token we just consumed
             let type_token = self.previous().clone();
             let data_type = match type_token.token_type {
                 TokenType::KwInt => DataType::Int,
@@ -139,17 +146,14 @@ impl Parser {
                 TokenType::KwBool => DataType::Bool,
                 _ => unreachable!(),
             };
-            
-            // Check if this is a function definition by looking ahead
+
             if self.check(TokenType::Identifier) {
                 let saved_pos = self.current;
-                self.advance(); // consume identifier
+                self.advance();
                 if self.check(TokenType::LeftParen) {
-                    // This is a function definition - reset position and parse function
-                    self.current -= 2; // back to type token
+                    self.current -= 2;
                     return self.function_definition();
                 }
-                // Not a function, reset to identifier and parse as variable
                 self.current = saved_pos;
             }
             return self.var_declaration_with_type(data_type);
@@ -214,18 +218,15 @@ impl Parser {
         let name = name_token.lexeme.clone();
         let line = name_token.line;
         let column = name_token.column;
-        
+
         self.consume(TokenType::Colon, "Expected ':' after struct name")?;
         self.skip_newlines();
 
         let fields = Vec::new();
-        
+
         Ok(Node::new(
             NodeType::StructDef,
-            NodeData::StructDef {
-                name,
-                fields,
-            },
+            NodeData::StructDef { name, fields },
             line,
             column,
         ))
@@ -237,32 +238,32 @@ impl Parser {
         let name = name_token.lexeme.clone();
         let line = name_token.line;
         let column = name_token.column;
-        
+
         self.consume(TokenType::LeftParen, "Expected '(' after function name")?;
-        
+
         let mut parameters = Vec::new();
         if !self.check(TokenType::RightParen) {
             loop {
                 let param_type = self.parse_type()?;
                 let param_name = self.consume(TokenType::Identifier, "Expected parameter name")?;
-                
+
                 parameters.push(Parameter {
                     data_type: param_type,
                     name: param_name.lexeme.clone(),
                 });
-                
+
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }
             }
         }
-        
+
         self.consume(TokenType::RightParen, "Expected ')' after parameters")?;
         self.consume(TokenType::Colon, "Expected ':' after function signature")?;
         self.skip_newlines();
-        
+
         let body = self.block()?;
-        
+
         Ok(Node::new(
             NodeType::FunctionDef,
             NodeData::FunctionDef {
@@ -281,8 +282,7 @@ impl Parser {
         let name = name_token.lexeme.clone();
         let line = name_token.line;
         let column = name_token.column;
-        
-        // Check for array dimensions
+
         let mut array_sizes = None;
         if self.check(TokenType::LeftBracket) {
             let mut sizes = Vec::new();
@@ -293,16 +293,15 @@ impl Parser {
             }
             array_sizes = Some(sizes);
         }
-        
-        // Check for initialization
+
         let init_expr = if self.match_token(&[TokenType::Assign]) {
             Some(Box::new(self.expression()?))
         } else {
             None
         };
-        
+
         self.skip_newlines();
-        
+
         Ok(Node::new(
             NodeType::VarDecl,
             NodeData::VarDecl {
@@ -323,9 +322,9 @@ impl Parser {
         self.consume(TokenType::RightParen, "Expected ')' after if condition")?;
         self.consume(TokenType::Colon, "Expected ':' after if condition")?;
         self.skip_newlines();
-        
+
         let then_stmt = self.block()?;
-        
+
         let else_stmt = if self.match_token(&[TokenType::KwElse]) {
             if self.match_token(&[TokenType::KwIf]) {
                 // else if
@@ -338,7 +337,7 @@ impl Parser {
         } else {
             None
         };
-        
+
         Ok(Node::new(
             NodeType::IfStmt,
             NodeData::IfStmt {
@@ -358,9 +357,9 @@ impl Parser {
         self.consume(TokenType::RightParen, "Expected ')' after while condition")?;
         self.consume(TokenType::Colon, "Expected ':' after while condition")?;
         self.skip_newlines();
-        
+
         let body = self.block()?;
-        
+
         Ok(Node::new(
             NodeType::WhileStmt,
             NodeData::WhileStmt {
@@ -375,35 +374,32 @@ impl Parser {
     fn for_statement(&mut self) -> Result<Node, ParseError> {
         let prev = self.previous().clone();
         self.consume(TokenType::LeftParen, "Expected '(' after 'for'")?;
-        
-        let init = if self.check(TokenType::Comma) || self.check(TokenType::RightParen) {
+
+        let init = if self.check(TokenType::Semicolon) || self.check(TokenType::RightParen) {
             None
         } else {
             Some(Box::new(self.statement()?))
         };
-        
-        self.consume(TokenType::Comma, "Expected ';' after for loop initializer")?;
-        
-        let condition = if self.check(TokenType::Comma) {
+        self.consume(TokenType::Semicolon, "Expected ';' after for initializer")?;
+
+        let condition = if self.check(TokenType::Semicolon) {
             None
         } else {
             Some(Box::new(self.expression()?))
         };
-        
-        self.consume(TokenType::Comma, "Expected ';' after for loop condition")?;
-        
+        self.consume(TokenType::Semicolon, "Expected ';' after for condition")?;
+
         let update = if self.check(TokenType::RightParen) {
             None
         } else {
             Some(Box::new(self.expression()?))
         };
-        
+
         self.consume(TokenType::RightParen, "Expected ')' after for clauses")?;
-        self.consume(TokenType::Colon, "Expected ':' after for statement")?;
+        self.consume(TokenType::Colon, "Expected ':' after for(...)")?;
         self.skip_newlines();
-        
         let body = self.block()?;
-        
+
         Ok(Node::new(
             NodeType::ForStmt,
             NodeData::ForStmt {
@@ -421,15 +417,15 @@ impl Parser {
         let prev = self.previous().clone();
         self.consume(TokenType::Colon, "Expected ':' after 'do'")?;
         self.skip_newlines();
-        
+
         let body = self.block()?;
-        
+
         self.consume(TokenType::KwWhile, "Expected 'while' after do body")?;
         self.consume(TokenType::LeftParen, "Expected '(' after 'while'")?;
         let condition = self.expression()?;
         self.consume(TokenType::RightParen, "Expected ')' after while condition")?;
         self.skip_newlines();
-        
+
         Ok(Node::new(
             NodeType::DoWhileStmt,
             NodeData::DoWhileStmt {
@@ -445,34 +441,40 @@ impl Parser {
         let prev = self.previous().clone();
         self.consume(TokenType::LeftParen, "Expected '(' after 'switch'")?;
         let expr = self.expression()?;
-        self.consume(TokenType::RightParen, "Expected ')' after switch expression")?;
+        self.consume(
+            TokenType::RightParen,
+            "Expected ')' after switch expression",
+        )?;
         self.consume(TokenType::Colon, "Expected ':' after switch expression")?;
         self.skip_newlines();
-        
+
         let mut cases = Vec::new();
-        
+
         while self.match_token(&[TokenType::KwCase, TokenType::KwDefault]) {
             let case_prev = self.previous().clone();
             let is_default = case_prev.token_type == TokenType::KwDefault;
-            
+
             let value = if is_default {
                 None
             } else {
                 Some(Box::new(self.expression()?))
             };
-            
+
             self.consume(TokenType::Colon, "Expected ':' after case value")?;
             self.skip_newlines();
-            
+
             let mut statements = Vec::new();
-            while !self.check(TokenType::KwCase) && !self.check(TokenType::KwDefault) && !self.is_at_end() {
+            while !self.check(TokenType::KwCase)
+                && !self.check(TokenType::KwDefault)
+                && !self.is_at_end()
+            {
                 if self.check(TokenType::Newline) {
                     self.advance();
                     continue;
                 }
                 statements.push(self.statement()?);
             }
-            
+
             cases.push(Node::new(
                 NodeType::CaseStmt,
                 NodeData::CaseStmt { value, statements },
@@ -480,7 +482,7 @@ impl Parser {
                 case_prev.column,
             ));
         }
-        
+
         Ok(Node::new(
             NodeType::SwitchStmt,
             NodeData::SwitchStmt {
@@ -499,9 +501,9 @@ impl Parser {
         } else {
             Some(Box::new(self.expression()?))
         };
-        
+
         self.skip_newlines();
-        
+
         Ok(Node::new(
             NodeType::ReturnStmt,
             NodeData::ReturnStmt { value },
@@ -512,9 +514,9 @@ impl Parser {
 
     fn print_statement(&mut self) -> Result<Node, ParseError> {
         let prev = self.previous().clone();
-        
+
         self.consume(TokenType::LeftParen, "Expected '(' after 'print'")?;
-        
+
         let mut arguments = Vec::new();
         if !self.check(TokenType::RightParen) {
             loop {
@@ -524,10 +526,10 @@ impl Parser {
                 }
             }
         }
-        
+
         self.consume(TokenType::RightParen, "Expected ')' after print arguments")?;
         self.skip_newlines();
-        
+
         Ok(Node::new(
             NodeType::PrintStmt,
             NodeData::PrintStmt { arguments },
@@ -541,7 +543,7 @@ impl Parser {
         let line = expr.line;
         let column = expr.column;
         self.skip_newlines();
-        
+
         Ok(Node::new(
             NodeType::ExprStmt,
             NodeData::ExprStmt {
@@ -556,62 +558,119 @@ impl Parser {
         let mut statements = Vec::new();
         let line = self.peek().line;
         let column = self.peek().column;
-        
-        // Expect an INDENT token to start the block
+
         if !self.match_token(&[TokenType::Indent]) {
-            // Handle single-line blocks or ellipsis for empty blocks
-            if self.match_token(&[TokenType::Ellipsis]) {
+            return if self.match_token(&[TokenType::Ellipsis]) {
                 self.skip_newlines();
-                return Ok(Node::new(
+                Ok(Node::new(
                     NodeType::Block,
                     NodeData::Block { statements },
                     line,
                     column,
-                ));
+                ))
             } else {
-                // Single statement without indentation
                 statements.push(self.statement()?);
-                return Ok(Node::new(
+                Ok(Node::new(
                     NodeType::Block,
                     NodeData::Block { statements },
                     line,
                     column,
-                ));
-            }
+                ))
+            };
         }
-        
-        // Parse statements until we hit a DEDENT token
+
         while !self.is_at_end() && !self.check(TokenType::Dedent) && !self.check(TokenType::Eof) {
             self.skip_newlines();
             if self.is_at_end() || self.check(TokenType::Dedent) {
                 break;
             }
-            
+
             statements.push(self.statement()?);
         }
-        
-        // Consume the DEDENT token
+
         if self.check(TokenType::Dedent) {
             self.advance();
         }
-        
+
         Ok(Node::create_block(statements, line, column))
     }
 
     fn expression(&mut self) -> Result<Node, ParseError> {
-        self.ternary()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Node, ParseError> {
+        // parse algo de maior precedência primeiro
+        let left = self.ternary()?;
+
+        // suporte a =, +=, -=, *=, /= (e %=? se existir)
+        if self.match_token(&[
+            TokenType::Assign,
+            TokenType::PlusAssign,
+            TokenType::MinusAssign,
+            TokenType::MultiplyAssign,
+            TokenType::DivideAssign,
+            // TokenType::ModuloAssign, // se implementar
+        ]) {
+            let op_tok = self.previous().clone();
+            let rhs = self.assignment()?; // right-associative
+
+            // verifique se 'left' é lvalue (id, acesso a membro, index)
+            if !Self::is_lvalue(&left) {
+                return Err(ParseError::UnexpectedToken {
+                    found: op_tok.token_type.clone(),
+                    expected: Some("assignable left-hand side".to_string()),
+                    line: op_tok.line,
+                });
+            }
+
+            return Ok(Node::new(
+                NodeType::Assignment,
+                NodeData::Assignment {
+                    target: Box::new(left),
+                    op: Self::map_assign_op(op_tok.token_type),
+                    value: Box::new(rhs),
+                },
+                op_tok.line,
+                op_tok.column,
+            ));
+        }
+
+        Ok(left)
+    }
+
+    fn is_lvalue(n: &Node) -> bool {
+        matches!(
+            n.node_type,
+            NodeType::Identifier | NodeType::MemberAccess | NodeType::ArrayAccess
+        )
+    }
+
+    fn map_assign_op(t: TokenType) -> AssignOpType {
+        match t {
+            TokenType::Assign => AssignOpType::Assign,
+            TokenType::PlusAssign => AssignOpType::AddAssign,
+            TokenType::MinusAssign => AssignOpType::SubAssign,
+            TokenType::MultiplyAssign => AssignOpType::MulAssign,
+            TokenType::DivideAssign => AssignOpType::DivAssign,
+            // TokenType::ModuloAssign => AssignOpType::ModuloAssign,
+            _ => unreachable!(),
+        }
     }
 
     fn ternary(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.logical_or()?;
-        
+
         if self.match_token(&[TokenType::Question]) {
             let line = expr.line;
             let column = expr.column;
             let true_expr = self.expression()?;
-            self.consume(TokenType::Colon, "Expected ':' after ternary true expression")?;
+            self.consume(
+                TokenType::Colon,
+                "Expected ':' after ternary true expression",
+            )?;
             let false_expr = self.expression()?;
-            
+
             expr = Node::new(
                 NodeType::TernaryOp,
                 NodeData::TernaryOp {
@@ -623,13 +682,13 @@ impl Parser {
                 column,
             );
         }
-        
+
         Ok(expr)
     }
 
     fn logical_or(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.logical_and()?;
-        
+
         while self.match_token(&[TokenType::LogicalOr]) {
             let op = BinaryOpType::LogicalOr;
             let right = self.logical_and()?;
@@ -637,13 +696,13 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
     fn logical_and(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.equality()?;
-        
+
         while self.match_token(&[TokenType::LogicalAnd]) {
             let op = BinaryOpType::LogicalAnd;
             let right = self.equality()?;
@@ -651,13 +710,13 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.comparison()?;
-        
+
         while self.match_token(&[TokenType::Equal, TokenType::NotEqual]) {
             let op = match self.previous().token_type {
                 TokenType::Equal => BinaryOpType::Equal,
@@ -669,13 +728,13 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
     fn comparison(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.term()?;
-        
+
         while self.match_token(&[
             TokenType::Greater,
             TokenType::GreaterEqual,
@@ -694,13 +753,13 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
     fn term(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.factor()?;
-        
+
         while self.match_token(&[TokenType::Minus, TokenType::Plus]) {
             let op = match self.previous().token_type {
                 TokenType::Minus => BinaryOpType::Sub,
@@ -712,13 +771,13 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
     fn factor(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.unary()?;
-        
+
         while self.match_token(&[TokenType::Divide, TokenType::Multiply, TokenType::Modulo]) {
             let op = match self.previous().token_type {
                 TokenType::Divide => BinaryOpType::Div,
@@ -731,7 +790,7 @@ impl Parser {
             let column = expr.column;
             expr = Node::create_binary_op(op, Box::new(expr), Box::new(right), line, column);
         }
-        
+
         Ok(expr)
     }
 
@@ -745,15 +804,20 @@ impl Parser {
                 _ => unreachable!(),
             };
             let operand = self.unary()?;
-            return Ok(Node::create_unary_op(op, Box::new(operand), prev.line, prev.column));
+            return Ok(Node::create_unary_op(
+                op,
+                Box::new(operand),
+                prev.line,
+                prev.column,
+            ));
         }
-        
+
         self.postfix()
     }
 
     fn postfix(&mut self) -> Result<Node, ParseError> {
         let mut expr = self.primary()?;
-        
+
         loop {
             if self.match_token(&[TokenType::Increment]) {
                 let prev = self.previous();
@@ -775,13 +839,13 @@ impl Parser {
                 let mut indices = Vec::new();
                 indices.push(Box::new(self.expression()?));
                 self.consume(TokenType::RightBracket, "Expected ']'")?;
-                
+
                 // Handle multi-dimensional arrays
                 while self.match_token(&[TokenType::LeftBracket]) {
                     indices.push(Box::new(self.expression()?));
                     self.consume(TokenType::RightBracket, "Expected ']'")?;
                 }
-                
+
                 let line = expr.line;
                 let column = expr.column;
                 expr = Node::new(
@@ -794,7 +858,6 @@ impl Parser {
                     column,
                 );
             } else if self.match_token(&[TokenType::LeftParen]) {
-                // Function call
                 let mut args = Vec::new();
                 if !self.check(TokenType::RightParen) {
                     loop {
@@ -805,7 +868,7 @@ impl Parser {
                     }
                 }
                 self.consume(TokenType::RightParen, "Expected ')' after arguments")?;
-                
+
                 if let NodeData::Identifier { name } = &expr.data {
                     let line = expr.line;
                     let column = expr.column;
@@ -823,7 +886,7 @@ impl Parser {
                 break;
             }
         }
-        
+
         Ok(expr)
     }
 
@@ -837,7 +900,7 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::KwFalse]) {
             let prev = self.previous();
             return Ok(Node::create_literal(
@@ -847,10 +910,12 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::Int]) {
             let prev = self.previous();
-            let value = prev.lexeme.parse::<i64>()
+            let value = prev
+                .lexeme
+                .parse::<i64>()
                 .map_err(|_| ParseError::UnexpectedToken {
                     found: prev.token_type,
                     expected: Some("valid integer".to_string()),
@@ -863,10 +928,12 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::Float]) {
             let prev = self.previous();
-            let value = prev.lexeme.parse::<f64>()
+            let value = prev
+                .lexeme
+                .parse::<f64>()
                 .map_err(|_| ParseError::UnexpectedToken {
                     found: prev.token_type,
                     expected: Some("valid float".to_string()),
@@ -879,13 +946,13 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::String]) {
             let prev = self.previous();
             let mut value = prev.lexeme.clone();
             // Remove quotes
             if value.len() >= 2 {
-                value = value[1..value.len()-1].to_string();
+                value = value[1..value.len() - 1].to_string();
             }
             return Ok(Node::create_literal(
                 DataType::String,
@@ -894,7 +961,7 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::Char]) {
             let prev = self.previous();
             let value = prev.lexeme.clone();
@@ -909,7 +976,7 @@ impl Parser {
                 ));
             }
         }
-        
+
         if self.match_token(&[TokenType::Identifier]) {
             let prev = self.previous();
             return Ok(Node::create_identifier(
@@ -918,7 +985,7 @@ impl Parser {
                 prev.column,
             ));
         }
-        
+
         if self.match_token(&[TokenType::LeftParen]) {
             // Check for cast
             if self.check_type() {
@@ -947,7 +1014,7 @@ impl Parser {
         if self.match_token(&[TokenType::LeftBracket]) {
             return self.array_literal();
         }
-        
+
         Err(ParseError::UnexpectedToken {
             found: self.peek().token_type,
             expected: Some("primary expression".to_string()),
@@ -958,33 +1025,33 @@ impl Parser {
     fn array_literal(&mut self) -> Result<Node, ParseError> {
         let line = self.previous().line;
         let column = self.previous().column;
-        
+
         let mut elements = Vec::new();
-        
+
         self.skip_newlines_and_indents();
-        
+
         if !self.check(TokenType::RightBracket) {
             loop {
                 self.skip_newlines_and_indents();
                 elements.push(Box::new(self.expression()?));
                 self.skip_newlines_and_indents();
-                
+
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }
-                
+
                 self.skip_newlines_and_indents();
-                
+
                 // Allow trailing comma
                 if self.check(TokenType::RightBracket) {
                     break;
                 }
             }
         }
-        
+
         self.skip_newlines_and_indents();
         self.consume(TokenType::RightBracket, "Expected ']' after array elements")?;
-        
+
         Ok(Node::new(
             NodeType::ArrayLiteral,
             NodeData::ArrayLiteral { elements },
@@ -996,8 +1063,12 @@ impl Parser {
     fn check_type(&self) -> bool {
         matches!(
             self.peek().token_type,
-            TokenType::KwInt | TokenType::KwFloat | TokenType::KwDouble | 
-            TokenType::KwChar | TokenType::KwString | TokenType::KwBool
+            TokenType::KwInt
+                | TokenType::KwFloat
+                | TokenType::KwDouble
+                | TokenType::KwChar
+                | TokenType::KwString
+                | TokenType::KwBool
         )
     }
 

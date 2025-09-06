@@ -29,7 +29,6 @@ fn main() {
         }
     };
 
-    // Tokenize
     let mut tokenizer = Tokenizer::new(&source);
     let tokens = match tokenizer.tokenize() {
         Ok(tokens) => tokens,
@@ -40,7 +39,6 @@ fn main() {
     };
     
 
-    // Parse
     let mut parser = Parser::new(tokens);
     let ast = match parser.parse() {
         Ok(ast) => ast,
@@ -50,7 +48,6 @@ fn main() {
         }
     };
 
-    // Interpret
     let mut interpreter = Interpreter::new();
     match interpreter.execute(&ast) {
         Ok(_) => {},

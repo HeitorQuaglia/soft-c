@@ -38,9 +38,9 @@ pub enum DataType {
     Char,
     String,
     Bool,
-    Array(Box<DataType>, Vec<usize>), // base_type, dimensions
+    Array(Box<DataType>, Vec<usize>),
     Void,
-    Struct(String), // struct name
+    Struct(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,7 +191,7 @@ pub enum NodeData {
         cases: Vec<Node>,
     },
     CaseStmt {
-        value: Option<Box<Node>>, // None for default case
+        value: Option<Box<Node>>,
         statements: Vec<Node>,
     },
     BreakStmt,
