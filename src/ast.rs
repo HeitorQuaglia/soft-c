@@ -27,6 +27,8 @@ pub enum NodeType {
     ExprStmt,
     StructDef,
     StructLiteral,
+    ClassDef,
+    Constructor,
     MemberAccess,
     ImportStmt,
     ExportStmt,
@@ -44,6 +46,7 @@ pub enum DataType {
     Array(Box<DataType>, Vec<usize>),
     Void,
     Struct(String),
+    Class(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -234,6 +237,15 @@ pub enum NodeData {
     StructLiteral {
         struct_name: String,
         field_values: Vec<FieldValue>,
+    },
+    ClassDef {
+        name: String,
+        fields: Vec<Parameter>,
+        constructor: Option<Box<Node>>,
+    },
+    Constructor {
+        parameters: Vec<Parameter>,
+        body: Box<Node>,
     },
     MemberAccess {
         object: Box<Node>,

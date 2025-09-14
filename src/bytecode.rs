@@ -48,15 +48,26 @@ pub enum Instruction {
     Call(String, u8),
     Return,
     ReturnValue,
-    ImportModule(String),              // Importa módulo
-    ImportSymbol(String, String),      // Importa símbolo (módulo, símbolo)
-    ImportWildcard(String),            // Import * from módulo
-    ExportSymbol(String),              // Exporta símbolo
-    LoadModuleSymbol(String, String),  // Carrega símbolo de módulo
+    ImportModule(String),
+    ImportSymbol(String, String),
+    ImportWildcard(String),
+    ExportSymbol(String),
+    LoadModuleSymbol(String, String),
     Print,
     Pop,
     Dup,
     Swap,
+    NewStruct(String),
+    NewObject(String),
+    GetField(String),
+    SetField(String),
+    GetObjectField(String),
+    SetObjectField(String),
+    CallConstructor(String, u8),
+    LoadThis,
+    PushThisContext,
+    PopThisContext,
+    CallFunction(String, u8),
     Halt,
     TernarySelect,
     SwitchTable(Vec<(i64, u32)>, u32),
@@ -121,6 +132,24 @@ impl BytecodeProgram {
     
     pub fn current_address(&self) -> u32 {
         self.instructions.len() as u32
+    }
+
+    pub fn disassemble(&self) -> String {
+        let mut output = String::new();
+        output.push_str("=== Bytecode Disassembly ===\n");
+
+        for (i, instruction) in self.instructions.iter().enumerate() {
+            output.push_str(&format!("{:04} | {:?}\n", i, instruction));
+        }
+
+        if !self.constants.is_empty() {
+            output.push_str("\n=== Constants ===\n");
+            for (i, constant) in self.constants.iter().enumerate() {
+                output.push_str(&format!("{:04} | {:?}\n", i, constant));
+            }
+        }
+
+        output
     }
 }
 

@@ -30,11 +30,14 @@ pub enum TokenType {
     KwPrint,
     KwType,
     KwStruct,
+    KwClass,
+    KwConstructor,
     KwImport,
     KwExport,
     KwModule,
     KwFrom,
     KwAs,
+    KwNew,
     Plus,
     Minus,
     Multiply,
@@ -132,11 +135,14 @@ impl Tokenizer {
         keywords.insert("print".to_string(), TokenType::KwPrint);
         keywords.insert("type".to_string(), TokenType::KwType);
         keywords.insert("struct".to_string(), TokenType::KwStruct);
+        keywords.insert("class".to_string(), TokenType::KwClass);
+        keywords.insert("constructor".to_string(), TokenType::KwConstructor);
         keywords.insert("import".to_string(), TokenType::KwImport);
         keywords.insert("export".to_string(), TokenType::KwExport);
         keywords.insert("module".to_string(), TokenType::KwModule);
         keywords.insert("from".to_string(), TokenType::KwFrom);
         keywords.insert("as".to_string(), TokenType::KwAs);
+        keywords.insert("new".to_string(), TokenType::KwNew);
 
         Tokenizer {
             source: source.chars().collect(),

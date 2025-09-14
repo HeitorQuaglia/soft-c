@@ -1,7 +1,5 @@
-use crate::bytecode::{BytecodeProgram, Instruction, Constant, Function, InstructionPointer};
-use crate::ast::DataType;
+use crate::bytecode::{BytecodeProgram, Instruction, InstructionPointer};
 use crate::native_interface::NativeRegistry;
-use crate::module_system::ModuleRegistry;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -13,6 +11,8 @@ pub enum Value {
     Char(char),
     Bool(bool),
     Array(Vec<Value>),
+    Struct(HashMap<String, Value>),
+    ObjectRef(usize),
     Null,
 }
 
@@ -32,6 +32,17 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
+            Value::Struct(fields) => {
+                write!(f, "{{")?;
+                let mut first = true;
+                for (key, value) in fields {
+                    if !first { write!(f, ", ")?; }
+                    write!(f, "{}: {}", key, value)?;
+                    first = false;
+                }
+                write!(f, "}}")
+            },
+            Value::ObjectRef(id) => write!(f, "ObjectRef({})", id),
             Value::Null => write!(f, "null"),
         }
     }
@@ -45,6 +56,8 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::Array(arr) => !arr.is_empty(),
+            Value::Struct(_) => true,
+            Value::ObjectRef(_) => true,
             Value::Null => false,
             Value::Char(c) => *c != '\0',
         }
@@ -90,6 +103,9 @@ pub struct VirtualMachine {
     pub stack: Vec<Value>,
     pub call_stack: Vec<CallFrame>,
     pub globals: HashMap<String, Value>,
+    pub object_heap: Vec<HashMap<String, Value>>,
+    pub this_stack: Vec<Option<usize>>,
+    pub function_addresses: HashMap<String, u32>,
     pub ip: InstructionPointer,
     pub program: BytecodeProgram,
     pub halted: bool,
@@ -102,6 +118,9 @@ impl VirtualMachine {
             stack: Vec::new(),
             call_stack: Vec::new(),
             globals: HashMap::new(),
+            object_heap: Vec::new(),
+            this_stack: vec![None],
+            function_addresses: HashMap::new(),
             ip: 0,
             program,
             halted: false,
@@ -130,7 +149,7 @@ impl VirtualMachine {
     
     fn execute_instruction(&mut self) -> Result<(), String> {
         let instruction = self.program.instructions[self.ip as usize].clone();
-        
+
         match instruction {
             Instruction::LoadInt(val) => {
                 self.stack.push(Value::Int(val));
@@ -460,6 +479,191 @@ impl VirtualMachine {
                 self.stack.push(Value::Null);
             },
             
+            Instruction::NewStruct(struct_name) => {
+                let struct_instance = HashMap::new();
+                self.stack.push(Value::Struct(struct_instance));
+            },
+            
+            Instruction::SetField(field_name) => {
+                let value = self.pop_stack()?;
+                let struct_val = self.pop_stack()?;
+                
+                match struct_val {
+                    Value::Struct(mut fields) => {
+                        fields.insert(field_name.clone(), value);
+                        self.stack.push(Value::Struct(fields));
+                    },
+                    _ => return Err(format!("Cannot set field '{}' on non-struct value", field_name)),
+                }
+            },
+            
+            Instruction::GetField(field_name) => {
+                let struct_val = self.pop_stack()?;
+                
+                match struct_val {
+                    Value::Struct(fields) => {
+                        match fields.get(&field_name) {
+                            Some(value) => self.stack.push(value.clone()),
+                            None => return Err(format!("Field '{}' not found in struct", field_name)),
+                        }
+                    },
+                    _ => return Err(format!("Cannot get field '{}' from non-struct value", field_name)),
+                }
+            },
+
+            Instruction::NewObject(class_name) => {
+                let object_fields = HashMap::new();
+                let object_ref = self.allocate_object(object_fields);
+                self.stack.push(object_ref);
+            },
+
+            Instruction::GetObjectField(field_name) => {
+                let object_ref = self.pop_stack()?;
+
+                match object_ref {
+                    Value::ObjectRef(object_id) => {
+                        let value = self.get_object_field(object_id, &field_name)?;
+                        self.stack.push(value);
+                    },
+                    Value::Struct(ref fields) => {
+                        match fields.get(&field_name) {
+                            Some(value) => self.stack.push(value.clone()),
+                            None => return Err(format!("Field '{}' not found in object", field_name)),
+                        }
+                    },
+                    _ => return Err(format!("Cannot get field '{}' from non-object value", field_name)),
+                }
+            },
+
+            Instruction::SetObjectField(field_name) => {
+                let value = self.pop_stack()?;
+                let object_ref = self.pop_stack()?;
+
+                match object_ref {
+                    Value::ObjectRef(object_id) => {
+                        self.set_object_field(object_id, field_name.clone(), value)?;
+                        self.stack.push(Value::ObjectRef(object_id));
+                    },
+                    _ => return Err(format!("Cannot set field '{}' on non-object value", field_name)),
+                }
+            },
+
+            Instruction::CallConstructor(class_name, arity) => {
+                let mut args = Vec::new();
+                for _ in 0..arity {
+                    args.insert(0, self.pop_stack()?);
+                }
+
+                let object_ref = self.pop_stack()?;
+
+                if let Value::ObjectRef(object_id) = object_ref {
+                    let constructor_name = format!("{}::constructor", class_name);
+
+                    if let Some(&constructor_address) = self.function_addresses.get(&constructor_name) {
+                        let mut call_frame = CallFrame {
+                            function_name: constructor_name.clone(),
+                            locals: vec![Value::Null; 256],
+                            return_address: self.ip + 1,
+                        };
+
+                        call_frame.locals[0] = Value::ObjectRef(object_id);
+
+                        for (i, arg) in args.into_iter().enumerate() {
+                            let slot = i + 1;
+                            if slot < call_frame.locals.len() {
+                                call_frame.locals[slot] = arg;
+                            }
+                        }
+
+                        self.this_stack.push(Some(object_id));
+                        self.call_stack.push(call_frame);
+
+                        self.ip = constructor_address;
+                        return Ok(());
+
+                    } else {
+                        self.stack.push(Value::ObjectRef(object_id));
+                    }
+                } else {
+                    return Err("CallConstructor called on non-object".to_string());
+                }
+            },
+
+            Instruction::LoadThis => {
+                if let Some(Some(this_id)) = self.this_stack.last() {
+                    self.stack.push(Value::ObjectRef(*this_id));
+                } else {
+                    return Err("Cannot use 'this' outside of object context".to_string());
+                }
+            },
+
+            Instruction::PushThisContext => {
+                let object_ref = self.pop_stack()?;
+                match object_ref {
+                    Value::ObjectRef(this_id) => {
+                        self.this_stack.push(Some(this_id));
+                        self.stack.push(Value::ObjectRef(this_id));
+                    },
+                    _ => return Err("PushThisContext called with non-object".to_string()),
+                }
+            },
+
+            Instruction::PopThisContext => {
+                if self.this_stack.len() > 1 {
+                    self.this_stack.pop();
+                } else {
+                    return Err("Cannot pop root this context".to_string());
+                }
+            },
+
+            Instruction::CallFunction(function_name, arity) => {
+                if let Some(&function_address) = self.function_addresses.get(&function_name) {
+                    let mut args = Vec::new();
+                    let arity_value = arity;
+                    for _ in 0..arity_value {
+                        args.insert(0, self.pop_stack()?);
+                    }
+
+                    let mut call_frame = CallFrame {
+                        function_name: function_name.clone(),
+                        locals: vec![Value::Null; 256],
+                        return_address: self.ip + 1,
+                    };
+
+                    for (i, arg) in args.into_iter().enumerate() {
+                        if i < call_frame.locals.len() {
+                            call_frame.locals[i] = arg;
+                        }
+                    }
+
+                    self.call_stack.push(call_frame);
+
+                    self.ip = function_address;
+                    return Ok(());
+                } else {
+                    return Err(format!("Function '{}' not found", function_name));
+                }
+            },
+
+            Instruction::ReturnValue => {
+                if let Some(call_frame) = self.call_stack.pop() {
+                    if call_frame.function_name.ends_with("::constructor") {
+                        if let Some(this_id) = self.this_stack.pop().flatten() {
+                        } else {
+                            return Err("Constructor called without proper 'this' context".to_string());
+                        }
+                    } else if call_frame.function_name == "main" {
+                        self.pop_stack().ok();
+                        self.halted = true;
+                        return Ok(());
+                    }
+                    self.ip = call_frame.return_address;
+                    return Ok(());
+                } else {
+                    self.halted = true;
+                }
+            },
+
             _ => {
                 return Err(format!("Unimplemented instruction: {:?}", instruction));
             },
@@ -471,5 +675,38 @@ impl VirtualMachine {
     
     fn pop_stack(&mut self) -> Result<Value, String> {
         self.stack.pop().ok_or_else(|| "Stack underflow".to_string())
+    }
+
+    pub fn allocate_object(&mut self, fields: HashMap<String, Value>) -> Value {
+        let object_id = self.object_heap.len();
+        self.object_heap.push(fields);
+        Value::ObjectRef(object_id)
+    }
+
+    pub fn get_object(&self, object_id: usize) -> Result<&HashMap<String, Value>, String> {
+        self.object_heap.get(object_id)
+            .ok_or_else(|| format!("Object with ID {} not found", object_id))
+    }
+
+    pub fn get_object_mut(&mut self, object_id: usize) -> Result<&mut HashMap<String, Value>, String> {
+        self.object_heap.get_mut(object_id)
+            .ok_or_else(|| format!("Object with ID {} not found", object_id))
+    }
+
+    pub fn get_object_field(&self, object_id: usize, field_name: &str) -> Result<Value, String> {
+        let object = self.get_object(object_id)?;
+        object.get(field_name)
+            .cloned()
+            .ok_or_else(|| format!("Field '{}' not found in object", field_name))
+    }
+
+    pub fn set_object_field(&mut self, object_id: usize, field_name: String, value: Value) -> Result<(), String> {
+        let object = self.get_object_mut(object_id)?;
+        object.insert(field_name, value);
+        Ok(())
+    }
+
+    pub fn set_function_addresses(&mut self, addresses: HashMap<String, u32>) {
+        self.function_addresses = addresses;
     }
 }

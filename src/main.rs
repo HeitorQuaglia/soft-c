@@ -1,24 +1,25 @@
 mod tokenizer;
 mod ast;
 mod parser;
-mod interpreter;
 mod bytecode;
-mod compiler;
 mod vm;
 mod native_interface;
 mod module_system;
+mod symbol_table;
+mod symbol_collector;
+mod multi_pass_compiler;
+mod stdlib;
 
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::Path;
 use std::process;
 
-use tokenizer::Tokenizer;
-use parser::Parser as SoftParser;
-use interpreter::Interpreter;
-use compiler::Compiler;
-use vm::VirtualMachine;
 use bytecode::BytecodeProgram;
+use multi_pass_compiler::MultiPassCompiler;
+use parser::Parser as SoftParser;
+use tokenizer::Tokenizer;
+use vm::VirtualMachine;
 
 #[derive(Parser)]
 #[command(name = "soft")]
@@ -32,14 +33,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Run {
-        file: String,
+        file: Option<String>,
         #[arg(long)]
         debug: bool,
         #[arg(long)]
         ast: bool,
     },
     Build {
-        file: String,
+        file: Option<String>,
         #[arg(short, long)]
         output: Option<String>,
         #[arg(long)]
@@ -52,12 +53,28 @@ fn main() {
 
     match &cli.command {
         Commands::Run { file, debug, ast } => {
-            run_file(file, *debug, *ast);
+            let file_path = get_source_file_path(file.as_deref());
+            run_file(&file_path, *debug, *ast);
         }
         Commands::Build { file, output, debug } => {
-            build_file(file, output.as_deref(), *debug);
+            let file_path = get_source_file_path(file.as_deref());
+            build_file(&file_path, output.as_deref(), *debug);
         }
     }
+}
+
+fn get_source_file_path(cli_file: Option<&str>) -> String {
+    if let Ok(env_file) = std::env::var("SOFT_SOURCE") {
+        println!("Using SOFT_SOURCE: {}", env_file);
+        return env_file;
+    }
+
+    if let Some(file) = cli_file {
+        return file.to_string();
+    }
+
+    eprintln!("Error: No source file specified. Use SOFT_SOURCE environment variable or provide file argument.");
+    process::exit(1);
 }
 
 fn run_file(file_path: &str, debug: bool, use_ast: bool) {
@@ -88,18 +105,12 @@ fn run_file(file_path: &str, debug: bool, use_ast: bool) {
     };
 
     if use_ast {
-        let mut interpreter = Interpreter::new();
-        match interpreter.execute(&ast) {
-            Ok(_) => {},
-            Err(err) => {
-                eprintln!("Runtime error: {}", err);
-                process::exit(1);
-            }
-        }
+        eprintln!("AST interpreter mode is no longer supported. Use bytecode VM instead.");
+        process::exit(1);
     } else {
-        let mut compiler = Compiler::new();
-        let program = match compiler.compile(&ast) {
-            Ok(program) => program,
+        let mut compiler = MultiPassCompiler::new();
+        let (program, function_addresses) = match compiler.compile(&ast) {
+            Ok(result) => result,
             Err(err) => {
                 eprintln!("Compilation error: {}", err);
                 process::exit(1);
@@ -111,6 +122,7 @@ fn run_file(file_path: &str, debug: bool, use_ast: bool) {
         }
 
         let mut vm = VirtualMachine::new(program);
+        vm.set_function_addresses(function_addresses);
         match vm.execute() {
             Ok(_) => {},
             Err(err) => {
@@ -148,9 +160,9 @@ fn build_file(file_path: &str, output_path: Option<&str>, debug: bool) {
         }
     };
 
-    let mut compiler = Compiler::new();
-    let program = match compiler.compile(&ast) {
-        Ok(program) => program,
+    let mut compiler = MultiPassCompiler::new();
+    let (program, _function_addresses) = match compiler.compile(&ast) {
+        Ok(result) => result,
         Err(err) => {
             eprintln!("Compilation error: {}", err);
             process::exit(1);

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::fs;
-use crate::ast::{Node, DataType};
+use crate::ast::{DataType, Node};
 use crate::bytecode::BytecodeProgram;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ImportType {
@@ -77,14 +77,13 @@ impl ModuleRegistry {
         let mut registry = ModuleRegistry {
             modules: HashMap::new(),
             search_paths: vec![
-                PathBuf::from("."),           // Diretório atual
-                PathBuf::from("./modules"),   // ./modules/
-                PathBuf::from("./lib"),       // ./lib/
+                PathBuf::from("."),
+                PathBuf::from("./modules"),
+                PathBuf::from("./lib"),
             ],
-            stdlib_path: PathBuf::from("./stdlib"), // ./stdlib/
+            stdlib_path: PathBuf::from("./stdlib"),
         };
         
-        // Carregar módulos padrão da stdlib
         registry.load_stdlib_modules();
         registry
     }
@@ -104,14 +103,12 @@ impl ModuleRegistry {
             }
         }
         
-        // Procurar em search paths
         for search_path in &self.search_paths {
             let module_path = search_path.join(format!("{}.softc", module_name));
             if module_path.exists() {
                 return Some(module_path);
             }
             
-            // Tentar como diretório com index.softc
             let index_path = search_path.join(module_name).join("index.softc");
             if index_path.exists() {
                 return Some(index_path);
@@ -122,7 +119,6 @@ impl ModuleRegistry {
     }
     
     pub fn load_module(&mut self, module_name: &str) -> Result<&Module, String> {
-        // Se já está carregado, retornar
         if self.modules.contains_key(module_name) {
             return Ok(self.modules.get(module_name).unwrap());
         }
@@ -130,19 +126,15 @@ impl ModuleRegistry {
         let module_path = self.resolve_module(module_name)
             .ok_or_else(|| format!("Module not found: {}", module_name))?;
         
-        // Ler código fonte
         let source = fs::read_to_string(&module_path)
             .map_err(|e| format!("Error reading module {}: {}", module_name, e))?;
         
-        // Compilar módulo
         let module = self.compile_module(module_name, module_path, source)?;
         
-        // Carregar dependências recursivamente
         for dependency in &module.dependencies.clone() {
             self.load_module(dependency)?;
         }
         
-        // Registrar módulo
         self.modules.insert(module_name.to_string(), module);
         
         Ok(self.modules.get(module_name).unwrap())
@@ -151,7 +143,7 @@ impl ModuleRegistry {
     fn compile_module(&self, name: &str, path: PathBuf, source: String) -> Result<Module, String> {
         use crate::tokenizer::Tokenizer;
         use crate::parser::Parser;
-        use crate::compiler::Compiler;
+        use crate::multi_pass_compiler::MultiPassCompiler;
         
         let mut tokenizer = Tokenizer::new(&source);
         let tokens = tokenizer.tokenize()
@@ -163,8 +155,8 @@ impl ModuleRegistry {
         
         let (imports, exports, dependencies) = self.extract_module_info(&ast)?;
         
-        let mut compiler = Compiler::new();
-        let bytecode = compiler.compile(&ast)
+        let mut compiler = MultiPassCompiler::new();
+        let (bytecode, _function_addresses) = compiler.compile(&ast)
             .map_err(|e| format!("Compilation error in {}: {}", name, e))?;
         
         Ok(Module {
@@ -345,7 +337,6 @@ impl ModuleRegistry {
             }
         }
         
-        // Procurar em módulos importados pelo módulo atual
         if let Some(current_module) = current_module {
             if let Some(module) = self.modules.get(current_module) {
                 for import in &module.imports {
