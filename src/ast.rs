@@ -28,6 +28,9 @@ pub enum NodeType {
     StructDef,
     StructLiteral,
     MemberAccess,
+    ImportStmt,
+    ExportStmt,
+    ModuleDecl,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +84,22 @@ pub enum AssignOpType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum ImportType {
+    Module(String),
+    Wildcard(String),
+    Selective(String, Vec<String>),
+    Aliased(String, String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExportType {
+    Function(String, Box<Node>),
+    Variable(String, DataType, Option<Box<Node>>),
+    List(Vec<String>),
+    Reexport(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiteralValue {
     Int(i64),
     Float(f64),
@@ -89,19 +108,19 @@ pub enum LiteralValue {
     Bool(bool),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Parameter {
     pub data_type: DataType,
     pub name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldValue {
     pub field_name: String,
     pub value: Box<Node>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Node {
     pub node_type: NodeType,
     pub data: NodeData,
@@ -109,7 +128,7 @@ pub struct Node {
     pub column: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NodeData {
     Program {
         statements: Vec<Node>,
@@ -219,6 +238,16 @@ pub enum NodeData {
     MemberAccess {
         object: Box<Node>,
         member_name: String,
+    },
+    ImportStmt {
+        import_type: ImportType,
+    },
+    ExportStmt {
+        export_type: ExportType,
+    },
+    ModuleDecl {
+        name: String,
+        body: Box<Node>,
     },
 }
 

@@ -224,9 +224,7 @@ impl Interpreter {
                 let value = if let Some(init) = init_expr {
                     self.execute_expression(init)?
                 } else if let Some(sizes) = array_sizes {
-                    // Create array with specified size
                     if sizes.len() == 1 {
-                        // Single dimension array
                         let size_node = &sizes[0];
                         let size_value = self.execute_expression(size_node)?;
                         if let Value::Int(size) = size_value {
@@ -238,7 +236,6 @@ impl Interpreter {
                             ));
                         }
                     } else {
-                        // Multi-dimensional arrays not implemented yet
                         return Err(RuntimeError::InvalidOperation(
                             "Multi-dimensional arrays not implemented yet".to_string()
                         ));
@@ -351,7 +348,7 @@ impl Interpreter {
                             let case_val = self.execute_expression(case_value)?;
                             self.values_equal(&switch_value, &case_val)?
                         } else {
-                            true // default case
+                            true
                         };
 
                         if is_match {
@@ -476,7 +473,6 @@ impl Interpreter {
                         ))
                     }
                 } else {
-                    // Custom function call
                     self.call_function(name, args)
                 }
             }
@@ -489,7 +485,6 @@ impl Interpreter {
             NodeData::ArrayAccess { array, indices } => {
                 let mut current_value = self.execute_expression(array)?;
                 
-                // Process each index sequentially for multi-dimensional access
                 for index_node in indices {
                     let index_val = self.execute_expression(index_node)?;
                     let index = index_val.to_int()? as usize;
@@ -837,13 +832,11 @@ impl Interpreter {
                     let current_value = if matches!(op, AssignOpType::Assign) {
                         value
                     } else {
-                        // Para operadores como +=, -=, etc., primeiro pegamos o valor atual
                         let var = self.get_variable(name)
                             .ok_or_else(|| RuntimeError::UndefinedVariable(name.clone()))?;
                         self.apply_assign_op(&var.value, op, value)?
                     };
 
-                    // Atualizar variable na call frame atual
                     if let Some(frame) = self.call_stack.last_mut() {
                         if let Some(var) = frame.variables.get_mut(name) {
                             var.value = current_value.clone();

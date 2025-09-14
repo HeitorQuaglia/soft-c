@@ -48,6 +48,11 @@ pub enum Instruction {
     Call(String, u8),
     Return,
     ReturnValue,
+    ImportModule(String),              // Importa módulo
+    ImportSymbol(String, String),      // Importa símbolo (módulo, símbolo)
+    ImportWildcard(String),            // Import * from módulo
+    ExportSymbol(String),              // Exporta símbolo
+    LoadModuleSymbol(String, String),  // Carrega símbolo de módulo
     Print,
     Pop,
     Dup,

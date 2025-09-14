@@ -124,6 +124,18 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Node, ParseError> {
+        if self.match_token(&[TokenType::KwImport]) {
+            return self.import_statement();
+        }
+        
+        if self.match_token(&[TokenType::KwExport]) {
+            return self.export_statement();
+        }
+        
+        if self.match_token(&[TokenType::KwModule]) {
+            return self.module_declaration();
+        }
+        
         if self.match_token(&[TokenType::KwType]) {
             return self.struct_definition();
         }
@@ -1092,5 +1104,145 @@ impl Parser {
                 line: self.peek().line,
             })
         }
+    }
+    
+    // ===== MODULE SYSTEM PARSING =====
+    
+    /// Parse import statement
+    /// Sintaxes suportadas:
+    /// - import module_name
+    /// - import * from module_name  
+    /// - import {symbol1, symbol2} from module_name
+    /// - import module_name as alias
+    fn import_statement(&mut self) -> Result<Node, ParseError> {
+        let line = self.previous().line;
+        let column = self.previous().column;
+        
+        let import_type = if self.match_token(&[TokenType::Multiply]) {
+            // import * from module_name
+            self.consume(TokenType::KwFrom, "Expected 'from' after '*'")?;
+            let module_name = self.consume(TokenType::Identifier, "Expected module name")?.lexeme;
+            ImportType::Wildcard(module_name)
+        } else if self.match_token(&[TokenType::LeftBrace]) {
+            // import {symbol1, symbol2} from module_name
+            let mut symbols = Vec::new();
+            
+            if !self.check(TokenType::RightBrace) {
+                loop {
+                    let symbol = self.consume(TokenType::Identifier, "Expected symbol name")?.lexeme;
+                    symbols.push(symbol);
+                    
+                    if !self.match_token(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+            }
+            
+            self.consume(TokenType::RightBrace, "Expected '}'")?;
+            self.consume(TokenType::KwFrom, "Expected 'from' after symbols")?;
+            let module_name = self.consume(TokenType::Identifier, "Expected module name")?.lexeme;
+            
+            ImportType::Selective(module_name, symbols)
+        } else {
+            // import module_name [as alias]
+            let module_name = self.consume(TokenType::Identifier, "Expected module name")?.lexeme;
+            
+            if self.match_token(&[TokenType::KwAs]) {
+                let alias = self.consume(TokenType::Identifier, "Expected alias name")?.lexeme;
+                ImportType::Aliased(module_name, alias)
+            } else {
+                ImportType::Module(module_name)
+            }
+        };
+        
+        Ok(Node::new(
+            NodeType::ImportStmt,
+            NodeData::ImportStmt { import_type },
+            line,
+            column,
+        ))
+    }
+    
+    /// Parse export statement
+    /// Sintaxes suportadas:
+    /// - export function name() { ... }
+    /// - export int var = value
+    /// - export {symbol1, symbol2}
+    /// - export * from module_name
+    fn export_statement(&mut self) -> Result<Node, ParseError> {
+        let line = self.previous().line;
+        let column = self.previous().column;
+        
+        let export_type = if self.match_token(&[TokenType::Multiply]) {
+            // export * from module_name
+            self.consume(TokenType::KwFrom, "Expected 'from' after '*'")?;
+            let module_name = self.consume(TokenType::Identifier, "Expected module name")?.lexeme;
+            ExportType::Reexport(module_name)
+        } else if self.match_token(&[TokenType::LeftBrace]) {
+            // export {symbol1, symbol2}
+            let mut symbols = Vec::new();
+            
+            if !self.check(TokenType::RightBrace) {
+                loop {
+                    let symbol = self.consume(TokenType::Identifier, "Expected symbol name")?.lexeme;
+                    symbols.push(symbol);
+                    
+                    if !self.match_token(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+            }
+            
+            self.consume(TokenType::RightBrace, "Expected '}'")?;
+            ExportType::List(symbols)
+        } else if self.check_type() {
+            // export type var = value
+            let data_type = self.parse_type()?;
+            let name = self.consume(TokenType::Identifier, "Expected variable name")?.lexeme;
+            
+            let init_expr = if self.match_token(&[TokenType::Assign]) {
+                Some(Box::new(self.expression()?))
+            } else {
+                None
+            };
+            
+            ExportType::Variable(name, data_type, init_expr)
+        } else {
+            return Err(ParseError::UnexpectedToken {
+                found: self.peek().token_type,
+                expected: Some("export declaration".to_string()),
+                line: self.peek().line,
+            });
+        };
+        
+        Ok(Node::new(
+            NodeType::ExportStmt,
+            NodeData::ExportStmt { export_type },
+            line,
+            column,
+        ))
+    }
+    
+    /// Parse module declaration
+    /// Sintaxe: module module_name: ...
+    fn module_declaration(&mut self) -> Result<Node, ParseError> {
+        let line = self.previous().line;
+        let column = self.previous().column;
+        
+        let name = self.consume(TokenType::Identifier, "Expected module name")?.lexeme;
+        self.consume(TokenType::Colon, "Expected ':' after module name")?;
+        
+        // Parse module body (block of statements)
+        let body = self.block()?;
+        
+        Ok(Node::new(
+            NodeType::ModuleDecl,
+            NodeData::ModuleDecl {
+                name,
+                body: Box::new(body),
+            },
+            line,
+            column,
+        ))
     }
 }

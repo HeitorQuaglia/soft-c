@@ -1,6 +1,7 @@
 use crate::bytecode::{BytecodeProgram, Instruction, Constant, Function, InstructionPointer};
 use crate::ast::DataType;
 use crate::native_interface::NativeRegistry;
+use crate::module_system::ModuleRegistry;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -114,7 +115,6 @@ impl VirtualMachine {
     }
     
     pub fn execute(&mut self) -> Result<(), String> {
-        // Inicializar frame principal (simulando função main)
         let main_frame = CallFrame {
             function_name: "main".to_string(),
             locals: Vec::new(),
@@ -174,7 +174,6 @@ impl VirtualMachine {
                     if (slot as usize) < frame.locals.len() {
                         frame.locals[slot as usize] = value;
                     } else {
-                        // Expandir locals se necessário
                         frame.locals.resize((slot as usize) + 1, Value::Null);
                         frame.locals[slot as usize] = value;
                     }
@@ -393,7 +392,6 @@ impl VirtualMachine {
             
             Instruction::Print => {
                 let value = self.pop_stack()?;
-                // Usar função nativa print
                 match self.native_registry.call("print", vec![value]) {
                     Ok(_) => {},
                     Err(err) => return Err(format!("Native function error: {}", err)),
@@ -401,24 +399,19 @@ impl VirtualMachine {
             },
             
             Instruction::Call(name, arg_count) => {
-                // Coletar argumentos da pilha
                 let mut args = Vec::new();
                 for _ in 0..arg_count {
                     args.push(self.pop_stack()?);
                 }
-                // Argumentos estão em ordem reversa, vamos corrigir
                 args.reverse();
                 
-                // Tentar chamar função nativa primeiro
                 match self.native_registry.call(&name, args) {
                     Ok(result) => {
-                        // Empurrar resultado na pilha (se não for null)
                         if result != Value::Null {
                             self.stack.push(result);
                         }
                     },
                     Err(_) => {
-                        // Se não é função nativa, tentar função SoftC
                         return Err(format!("Function not found: {}", name));
                     }
                 }
@@ -439,6 +432,32 @@ impl VirtualMachine {
             Instruction::Halt => {
                 self.halted = true;
                 return Ok(());
+            },
+            
+            Instruction::ImportModule(module_name) => {
+                // TODO: Implementar import de módulo quando module_registry estiver integrado
+                println!("DEBUG: Importing module: {}", module_name);
+            },
+            
+            Instruction::ImportSymbol(module_name, symbol_name) => {
+                // TODO: Implementar import de símbolo
+                println!("DEBUG: Importing symbol {} from {}", symbol_name, module_name);
+            },
+            
+            Instruction::ImportWildcard(module_name) => {
+                // TODO: Implementar wildcard import
+                println!("DEBUG: Wildcard import from {}", module_name);
+            },
+            
+            Instruction::ExportSymbol(symbol_name) => {
+                // TODO: Implementar export de símbolo
+                println!("DEBUG: Exporting symbol: {}", symbol_name);
+            },
+            
+            Instruction::LoadModuleSymbol(module_name, symbol_name) => {
+                // TODO: Implementar carregamento de símbolo de módulo
+                println!("DEBUG: Loading symbol {} from module {}", symbol_name, module_name);
+                self.stack.push(Value::Null);
             },
             
             _ => {

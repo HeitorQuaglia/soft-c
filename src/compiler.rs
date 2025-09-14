@@ -1,7 +1,6 @@
 use crate::ast::{Node, NodeType, NodeData, BinaryOpType, UnaryOpType, LiteralValue};
 use crate::bytecode::{BytecodeProgram, Instruction, Constant, Compilable};
 use std::collections::HashMap;
-
 pub struct Compiler {
     locals: HashMap<String, u16>,
     local_count: u16,
@@ -53,27 +52,22 @@ impl Compiler {
             },
             
             NodeData::VarDecl { name, init_expr, .. } => {
-                // Compilar expressão de inicialização se houver
                 if let Some(expr) = init_expr {
                     self.compile_node(expr, program)?;
                 } else {
                     program.add_instruction(Instruction::LoadNull);
                 }
                 
-                // Alocar slot local para variável
                 let slot = self.local_count;
                 self.locals.insert(name.clone(), slot);
                 self.local_count += 1;
                 
-                // Armazenar valor na variável
                 program.add_instruction(Instruction::StoreLocal(slot));
             },
             
             NodeData::Assignment { target, value, .. } => {
-                // Compilar valor
                 self.compile_node(value, program)?;
                 
-                // Compilar target (deve ser um identifier)
                 if let NodeData::Identifier { name } = &target.data {
                     if let Some(&slot) = self.locals.get(name) {
                         program.add_instruction(Instruction::StoreLocal(slot));
@@ -138,33 +132,25 @@ impl Compiler {
             },
             
             NodeData::IfStmt { condition, then_stmt, else_stmt } => {
-                // Compilar condição
                 self.compile_node(condition, program)?;
                 
-                // Jump para else se falso
                 let else_jump = program.current_address();
                 program.add_instruction(Instruction::JumpIfFalse(0)); // placeholder
                 
-                // Compilar then branch
                 self.compile_node(then_stmt, program)?;
                 
                 if else_stmt.is_some() {
-                    // Jump para pular else branch
                     let end_jump = program.current_address();
                     program.add_instruction(Instruction::Jump(0)); // placeholder
                     
-                    // Patch else jump
                     let else_addr = program.current_address();
                     program.instructions[else_jump as usize] = Instruction::JumpIfFalse(else_addr);
                     
-                    // Compilar else branch
                     self.compile_node(else_stmt.as_ref().unwrap(), program)?;
                     
-                    // Patch end jump
                     let end_addr = program.current_address();
                     program.instructions[end_jump as usize] = Instruction::Jump(end_addr);
                 } else {
-                    // Patch else jump (pula para o fim)
                     let end_addr = program.current_address();
                     program.instructions[else_jump as usize] = Instruction::JumpIfFalse(end_addr);
                 }
@@ -174,26 +160,19 @@ impl Compiler {
                 let loop_start = program.current_address();
                 self.continue_stack.push(loop_start);
                 
-                // Compilar condição
                 self.compile_node(condition, program)?;
                 
-                // Jump para saída se falso
                 let exit_jump = program.current_address();
                 program.add_instruction(Instruction::JumpIfFalse(0)); // placeholder
                 
-                // Compilar corpo
                 self.compile_node(body, program)?;
                 
-                // Jump de volta para condição
                 program.add_instruction(Instruction::Jump(loop_start));
                 
-                // Patch exit jump
                 let exit_addr = program.current_address();
                 program.instructions[exit_jump as usize] = Instruction::JumpIfFalse(exit_addr);
                 
-                // Patch breaks
                 if let Some(break_addr) = self.break_stack.pop() {
-                    // Implementar patch de breaks pendentes
                 }
                 self.continue_stack.pop();
             },
@@ -206,12 +185,10 @@ impl Compiler {
             },
             
             NodeData::FunctionCall { name, args } => {
-                // Compilar argumentos
                 for arg in args {
                     self.compile_node(arg, program)?;
                 }
                 
-                // Chamar função
                 program.add_instruction(Instruction::Call(name.clone(), args.len() as u8));
             },
             
@@ -223,7 +200,6 @@ impl Compiler {
                     self.compile_node(stmt, program)?;
                 }
                 
-                // Restaurar estado do escopo
                 self.local_count = saved_local_count;
                 self.locals = saved_locals;
             },
@@ -242,6 +218,57 @@ impl Compiler {
                 }
             },
             
+            NodeData::ImportStmt { import_type } => {
+                match import_type {
+                    crate::ast::ImportType::Module(module_name) => {
+                        program.add_instruction(Instruction::ImportModule(module_name.clone()));
+                    },
+                    crate::ast::ImportType::Wildcard(module_name) => {
+                        program.add_instruction(Instruction::ImportWildcard(module_name.clone()));
+                    },
+                    crate::ast::ImportType::Selective(module_name, symbols) => {
+                        for symbol in symbols {
+                            program.add_instruction(Instruction::ImportSymbol(module_name.clone(), symbol.clone()));
+                        }
+                    },
+                    crate::ast::ImportType::Aliased(module_name, _alias) => {
+                        program.add_instruction(Instruction::ImportModule(module_name.clone()));
+                    },
+                }
+            },
+            
+            NodeData::ExportStmt { export_type } => {
+                match export_type {
+                    crate::ast::ExportType::Variable(name, data_type, init_expr) => {
+                        if let Some(expr) = init_expr {
+                            self.compile_node(expr, program)?;
+                        } else {
+                            program.add_instruction(Instruction::LoadNull);
+                        }
+                        
+                        program.add_instruction(Instruction::StoreGlobal(name.clone()));
+                        program.add_instruction(Instruction::ExportSymbol(name.clone()));
+                    },
+                    crate::ast::ExportType::List(symbols) => {
+                        for symbol in symbols {
+                            program.add_instruction(Instruction::ExportSymbol(symbol.clone()));
+                        }
+                    },
+                    crate::ast::ExportType::Reexport(module_name) => {
+                        program.add_instruction(Instruction::ImportWildcard(module_name.clone()));
+                    },
+                    crate::ast::ExportType::Function(_name, _func_node) => {
+                        // TODO: Implementar export de função
+                        return Err("Export de função não implementado ainda".to_string());
+                    },
+                }
+            },
+            
+            NodeData::ModuleDecl { name, body } => {
+                // TODO: Implementar declaração de módulo
+                self.compile_node(body, program)?;
+            },
+            
             _ => {
                 return Err(format!("Node type {:?} not yet implemented in compiler", node.node_type));
             },
@@ -251,7 +278,6 @@ impl Compiler {
     }
 }
 
-// Implementação para debug: disassembler de bytecode
 impl BytecodeProgram {
     pub fn disassemble(&self) -> String {
         let mut output = String::new();

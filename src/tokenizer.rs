@@ -30,6 +30,11 @@ pub enum TokenType {
     KwPrint,
     KwType,
     KwStruct,
+    KwImport,
+    KwExport,
+    KwModule,
+    KwFrom,
+    KwAs,
     Plus,
     Minus,
     Multiply,
@@ -127,6 +132,11 @@ impl Tokenizer {
         keywords.insert("print".to_string(), TokenType::KwPrint);
         keywords.insert("type".to_string(), TokenType::KwType);
         keywords.insert("struct".to_string(), TokenType::KwStruct);
+        keywords.insert("import".to_string(), TokenType::KwImport);
+        keywords.insert("export".to_string(), TokenType::KwExport);
+        keywords.insert("module".to_string(), TokenType::KwModule);
+        keywords.insert("from".to_string(), TokenType::KwFrom);
+        keywords.insert("as".to_string(), TokenType::KwAs);
 
         Tokenizer {
             source: source.chars().collect(),
@@ -181,10 +191,8 @@ impl Tokenizer {
     fn handle_indentation(&mut self) -> Result<(), String> {
         let mut indent_level = 0;
         
-        // Count leading spaces/tabs
         while !self.is_at_end() && (self.peek() == ' ' || self.peek() == '\t') {
             if self.peek() == '\t' {
-                // Treat tab as 4 spaces
                 indent_level += 4;
             } else {
                 indent_level += 1;
@@ -299,7 +307,7 @@ impl Tokenizer {
         let c = self.advance().unwrap();
 
         match c {
-            ' ' | '\r' | '\t' => {}, // Skip whitespace
+            ' ' | '\r' | '\t' => {},
             '\n' => {
                 self.add_token(TokenType::Newline);
                 self.at_line_start = true;
@@ -348,7 +356,6 @@ impl Tokenizer {
             },
             '/' => {
                 if self.match_char('/') {
-                    // Comment - skip until end of line
                     while self.peek() != '\n' && !self.is_at_end() {
                         self.advance();
                     }
