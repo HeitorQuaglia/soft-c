@@ -69,7 +69,6 @@ impl Parser {
         &self.tokens[self.current - 1]
     }
 
-    /// Parse with error recovery - collects all errors instead of stopping at first error
     pub fn parse_with_error_recovery(&mut self) -> ParseResultMulti<Node> {
         let mut statements = Vec::new();
         let mut errors = ParseErrors::new();
@@ -84,7 +83,6 @@ impl Parser {
                 Ok(stmt) => statements.push(stmt),
                 Err(parse_error) => {
                     errors.add(parse_error);
-                    // Try to recover by skipping to next statement
                     self.recover_to_next_statement();
                 }
             }
@@ -97,17 +95,13 @@ impl Parser {
         }
     }
 
-    /// Recovery strategy: skip tokens until we find a synchronization point
     fn recover_to_next_statement(&mut self) {
-        // Always advance at least one token to avoid infinite loops
         if !self.is_at_end() {
             self.advance();
         }
 
         while !self.is_at_end() {
-            // Look for synchronization points that typically start new statements
             match self.peek().token_type {
-                // Keywords that typically start statements
                 TokenType::KwInt | TokenType::KwFloat | TokenType::KwDouble |
                 TokenType::KwChar | TokenType::KwString | TokenType::KwBool |
                 TokenType::KwIf | TokenType::KwWhile | TokenType::KwFor |
@@ -116,24 +110,18 @@ impl Parser {
                 TokenType::KwModule | TokenType::KwStruct | TokenType::KwClass => {
                     break;
                 }
-                // Statement terminators
                 TokenType::Semicolon => {
-                    self.advance(); // Skip the semicolon
+                    self.advance();
                     break;
                 }
-                // Block delimiters
                 TokenType::RightBrace | TokenType::LeftBrace => {
-                    break; // Don't consume braces
-                }
-                // Skip problematic tokens that might cause loops
-                TokenType::Dedent | TokenType::Indent => {
-                    self.advance(); // Skip indentation tokens
+                    break;
                 }
                 TokenType::Eof => {
-                    break; // End of file
+                    break;
                 }
                 _ => {
-                    self.advance(); // Skip this token and continue looking
+                    self.advance();
                 }
             }
         }

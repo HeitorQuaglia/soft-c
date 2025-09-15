@@ -6,8 +6,6 @@ pub struct Tokenizer {
     tokens: Vec<Token>,
     current: usize,
     position_tracker: PositionTracker,
-    indent_stack: Vec<usize>,
-    at_line_start: bool,
 }
 
 impl Tokenizer {
@@ -17,8 +15,6 @@ impl Tokenizer {
             tokens: Vec::new(),
             current: 0,
             position_tracker: PositionTracker::new(4), // 4 spaces per tab
-            indent_stack: vec![0], // Start with 0 indentation
-            at_line_start: true,
         }
     }
 
@@ -27,7 +23,6 @@ impl Tokenizer {
             self.scan_token()?;
         }
 
-        self.emit_remaining_dedents();
         self.add_token(TokenType::Eof, "");
 
         Ok(std::mem::take(&mut self.tokens))
@@ -38,14 +33,8 @@ impl Tokenizer {
         let ch = self.advance();
 
         match ch {
-            ' ' | '\t' | '\r' => {
-                if self.at_line_start {
-                    self.handle_indentation()?;
-                }
-            }
             '\n' => {
                 self.add_token_at_position(TokenType::Newline, "\n", start_position);
-                self.at_line_start = true;
             }
             '/' if self.match_char('/') => {
                 self.scan_line_comment()?;
@@ -102,7 +91,6 @@ impl Tokenizer {
         Ok(())
     }
 
-    // Character navigation methods
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
     }
@@ -114,9 +102,6 @@ impl Tokenizer {
             let ch = self.source[self.current];
             self.current += 1;
             self.position_tracker.advance(ch);
-            if ch != ' ' && ch != '\t' && ch != '\n' {
-                self.at_line_start = false;
-            }
             ch
         }
     }
@@ -164,65 +149,6 @@ impl Tokenizer {
         self.add_token_at_position(token_type, &lexeme, start_position);
     }
 
-    // Indentation handling
-    fn handle_indentation(&mut self) -> Result<()> {
-        let mut indent_level = 0;
-        let start = self.current - 1; // Back up to include first whitespace
-
-        // Count indentation
-        while self.current < self.source.len() {
-            match self.source[self.current] {
-                ' ' => indent_level += 1,
-                '\t' => indent_level += 4, // Tab = 4 spaces
-                _ => break,
-            }
-            self.current += 1;
-            self.position_tracker.advance(self.source[self.current - 1]);
-        }
-
-        // Skip if this line is empty or a comment
-        if self.is_at_end() || self.peek() == '\n' ||
-           (self.peek() == '/' && self.peek_next() == '/') {
-            return Ok(());
-        }
-
-        let current_indent = *self.indent_stack.last().unwrap();
-
-        if indent_level > current_indent {
-            // Increased indentation
-            self.indent_stack.push(indent_level);
-            self.add_token(TokenType::Indent, "");
-        } else if indent_level < current_indent {
-            // Decreased indentation - may need multiple dedents
-            while let Some(&last_indent) = self.indent_stack.last() {
-                if last_indent <= indent_level {
-                    break;
-                }
-                self.indent_stack.pop();
-                self.add_token(TokenType::Dedent, "");
-            }
-
-            // Check for indentation mismatch
-            if self.indent_stack.last() != Some(&indent_level) {
-                return Err(TokenizerError::IndentationError {
-                    expected: *self.indent_stack.last().unwrap(),
-                    found: indent_level,
-                    position: self.position_tracker.position(),
-                });
-            }
-        }
-
-        Ok(())
-    }
-
-    fn emit_remaining_dedents(&mut self) {
-        while self.indent_stack.len() > 1 {
-            self.indent_stack.pop();
-            self.add_token(TokenType::Dedent, "");
-        }
-    }
-
-    // Operator scanning methods
     fn scan_plus(&mut self, start_position: Position) {
         if self.match_char('=') {
             self.add_token_at_position(TokenType::PlusAssign, "+=", start_position);
@@ -315,7 +241,6 @@ impl Tokenizer {
         }
     }
 
-    // String literal scanning
     fn scan_string(&mut self) -> Result<()> {
         let start_position = self.position_tracker.position();
         let mut value = String::new();
@@ -328,7 +253,7 @@ impl Tokenizer {
             }
 
             if self.peek() == '\\' {
-                self.advance(); // consume backslash
+                self.advance();
                 value.push(self.scan_escape_sequence()?);
             } else {
                 value.push(self.advance());
@@ -341,13 +266,11 @@ impl Tokenizer {
             });
         }
 
-        // Consume closing quote
         self.advance();
         self.add_token(TokenType::String, &value);
         Ok(())
     }
 
-    // Character literal scanning
     fn scan_char(&mut self) -> Result<()> {
         let start_position = self.position_tracker.position();
 
@@ -358,7 +281,7 @@ impl Tokenizer {
         }
 
         let ch = if self.peek() == '\\' {
-            self.advance(); // consume backslash
+            self.advance();
             self.scan_escape_sequence()?
         } else {
             self.advance()
@@ -370,7 +293,6 @@ impl Tokenizer {
             });
         }
 
-        // Consume closing quote
         self.advance();
         self.add_token(TokenType::Char, &ch.to_string());
         Ok(())
@@ -402,20 +324,17 @@ impl Tokenizer {
         }
     }
 
-    // Number scanning
     fn scan_number(&mut self, start_position: Position) -> Result<()> {
         let start = self.current - 1;
 
-        // Scan integer part
         while self.peek().is_ascii_digit() {
             self.advance();
         }
 
-        // Check for decimal part
         let mut is_float = false;
         if self.peek() == '.' && self.peek_next().is_ascii_digit() {
             is_float = true;
-            self.advance(); // consume '.'
+            self.advance();
 
             while self.peek().is_ascii_digit() {
                 self.advance();
@@ -432,7 +351,6 @@ impl Tokenizer {
         Ok(())
     }
 
-    // Identifier scanning
     fn scan_identifier(&mut self, start_position: Position) {
         let start = self.current - 1;
 
@@ -442,16 +360,13 @@ impl Tokenizer {
 
         let text: String = self.source[start..self.current].iter().collect();
 
-        // Check if it's a keyword
         let token_type = keywords::get_keyword(&text)
             .unwrap_or(TokenType::Identifier);
 
         self.add_token_at_position(token_type, &text, start_position);
     }
 
-    // Comment scanning
     fn scan_line_comment(&mut self) -> Result<()> {
-        // Consume until end of line
         while !self.is_at_end() && self.peek() != '\n' {
             self.advance();
         }
@@ -463,8 +378,8 @@ impl Tokenizer {
 
         while !self.is_at_end() {
             if self.peek() == '*' && self.peek_next() == '/' {
-                self.advance(); // consume '*'
-                self.advance(); // consume '/'
+                self.advance();
+                self.advance();
                 return Ok(());
             }
             self.advance();

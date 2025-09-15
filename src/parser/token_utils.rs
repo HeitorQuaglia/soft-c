@@ -67,7 +67,7 @@ impl TokenUtils {
     }
 
     pub fn skip_newlines_and_indents(tokens: &[Token], current: &mut usize) {
-        while Self::match_token(tokens, current, &[TokenType::Newline, TokenType::Indent, TokenType::Dedent]) {}
+        while Self::match_token(tokens, current, &[TokenType::Newline]) {}
     }
 
     pub fn is_primitive_type_token(tokens: &[Token], current: usize) -> bool {

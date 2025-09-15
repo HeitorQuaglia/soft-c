@@ -25,11 +25,6 @@ pub enum TokenizerError {
         sequence: String,
         position: Position
     },
-    IndentationError {
-        expected: usize,
-        found: usize,
-        position: Position
-    },
 }
 
 impl fmt::Display for TokenizerError {
@@ -52,13 +47,6 @@ impl fmt::Display for TokenizerError {
             }
             TokenizerError::InvalidEscapeSequence { sequence, position } => {
                 write!(f, "Invalid escape sequence '{}' at {}", sequence, position)
-            }
-            TokenizerError::IndentationError { expected, found, position } => {
-                write!(
-                    f,
-                    "Indentation error: expected {} spaces, found {} at {}",
-                    expected, found, position
-                )
             }
         }
     }
