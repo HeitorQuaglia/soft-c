@@ -1,0 +1,20 @@
+=== Bytecode Disassembly ===
+0000 | CallMain
+0001 | Halt
+0002 | LoadInt(5)
+0003 | StoreLocal(1)
+0004 | LoadInt(10)
+0005 | StoreLocal(2)
+0006 | LoadLocal(1)
+0007 | LoadLocal(2)
+0008 | Add
+0009 | LoadInt(10)
+0010 | Add
+0011 | StoreLocal(3)
+0012 | LoadLocal(3)
+0013 | Call("print", 1)
+0014 | Pop
+0015 | LoadInt(0)
+0016 | ReturnMain
+0017 | LoadInt(0)
+0018 | ReturnMain

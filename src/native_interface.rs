@@ -1,4 +1,4 @@
-use crate::vm::Value;
+use crate::vm::value::Value;
 use std::collections::HashMap;
 use std::fmt;
 

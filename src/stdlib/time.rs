@@ -1,5 +1,5 @@
 use crate::native_interface::NativeFunction;
-use crate::vm::Value;
+use crate::vm::value::Value;
 use std::thread;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 

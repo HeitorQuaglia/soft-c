@@ -143,7 +143,7 @@ impl ModuleRegistry {
     fn compile_module(&self, name: &str, path: PathBuf, source: String) -> Result<Module, String> {
         use crate::tokenizer::Tokenizer;
         use crate::parser::Parser;
-        use crate::multi_pass_compiler::MultiPassCompiler;
+        use crate::compiler::MultiPassCompiler;
         
         let mut tokenizer = Tokenizer::new(&source);
         let tokens = tokenizer.tokenize()

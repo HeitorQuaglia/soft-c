@@ -2,24 +2,23 @@ mod tokenizer;
 mod ast;
 mod parser;
 mod bytecode;
-mod vm;
+pub mod vm;
 mod native_interface;
 mod module_system;
-mod symbol_table;
-mod symbol_collector;
-mod multi_pass_compiler;
+mod compiler;
 mod stdlib;
+
+use crate::bytecode::BytecodeProgram;
+use crate::vm::VirtualMachine;
 
 use clap::{Parser, Subcommand};
 use std::fs;
 use std::path::Path;
 use std::process;
 
-use bytecode::BytecodeProgram;
-use multi_pass_compiler::MultiPassCompiler;
+use compiler::MultiPassCompiler;
 use parser::Parser as SoftParser;
 use tokenizer::Tokenizer;
-use vm::VirtualMachine;
 
 #[derive(Parser)]
 #[command(name = "soft")]
@@ -96,10 +95,11 @@ fn run_file(file_path: &str, debug: bool, use_ast: bool) {
     };
 
     let mut parser = SoftParser::new(tokens);
-    let ast = match parser.parse() {
+    let ast = match parser.parse_with_error_recovery() {
         Ok(ast) => ast,
-        Err(err) => {
-            eprintln!("Parse error: {}", err);
+        Err(errors) => {
+            eprintln!("Parsing failed with errors:");
+            eprintln!("{}", errors);
             process::exit(1);
         }
     };
@@ -152,10 +152,11 @@ fn build_file(file_path: &str, output_path: Option<&str>, debug: bool) {
     };
 
     let mut parser = SoftParser::new(tokens);
-    let ast = match parser.parse() {
+    let ast = match parser.parse_with_error_recovery() {
         Ok(ast) => ast,
-        Err(err) => {
-            eprintln!("Parse error: {}", err);
+        Err(errors) => {
+            eprintln!("Parsing failed with errors:");
+            eprintln!("{}", errors);
             process::exit(1);
         }
     };

@@ -1,5 +1,5 @@
 use crate::native_interface::NativeFunction;
-use crate::vm::Value;
+use crate::vm::value::Value;
 
 #[derive(Debug)]
 pub struct LenFunction;
